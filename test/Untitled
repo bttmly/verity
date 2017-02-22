@@ -1,0 +1,165 @@
+
+
+--             name            |  count
+-- ----------------------------+---------
+--  Participating              | 8239840
+--  On task                    | 6897564
+--  Working hard               | 6768656
+--  Off task                   | 5946758
+--  Teamwork                   | 5755687
+--  Talking out of turn        | 5653537
+--  Helping others             | 5631419
+--  Unprepared                 | 5607586
+--  Persistence                | 5448954
+--  Disrespect                 | 3175440
+--  No homework                | 3037854
+--  On Task                    | 1443260
+--  Working Hard               | 1410023
+--  Trabajando duro            |  443996
+
+
+
+with counts as
+	(
+	select
+		teacherid,
+		count(distinct   classId) as   classCount,
+		count(distinct studentId) as studentCount,
+		count(distinct  parentId) as  parentCount
+	from cache.graph -- demo are excluded
+	group by 1
+	),
+
+classNames as
+	(
+	select
+		teacherId,
+		className1,
+		className2,
+		className3
+	from
+		(
+		select
+			teacherId,
+			nth_value(name, 1) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as className1,
+			nth_value(name, 2) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as className2,
+			nth_value(name, 3) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as className3
+		from
+			(
+			select
+				teacherId,
+				classId,
+				name,
+				class_teacher.createdAt
+			from production.class_teacher
+			join production.class         using(classId)
+			where demo = 0
+			)
+		)
+	group by 1,2,3,4
+	),
+
+studentNames as
+	(
+	select
+		teacherId,
+		studentName1,
+		studentName2,
+		studentName3
+	from
+		(
+		select
+			teacherId,
+			nth_value(name, 1) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as studentName1,
+			nth_value(name, 2) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as studentName2,
+			nth_value(name, 3) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as studentName3
+		from
+			(
+			select
+				teacherId,
+				classId,
+				firstName || ' ' || lastName as name,
+				classStudentCreatedAt        as createdAt
+			from cache.graph
+			join production.student on graph.studentId = student.studentId
+			)
+		)
+	group by 1,2,3,4
+	),
+
+
+behaviorNames as
+	(
+	select
+		teacherId,
+		behaviorName1,
+		behaviorName2,
+		behaviorName3
+	from
+		(
+		select
+			teacherId,
+			nth_value(name, 1) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as behaviorName1,
+			nth_value(name, 2) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as behaviorName2,
+			nth_value(name, 3) over(partition by teacherId order by createdAt desc rows between unbounded preceding and unbounded following) as behaviorName3
+		from
+			(
+			select
+				teacherId,
+				behavior.name,
+				f_id_to_time(behavior.id) as createdAt
+			from production.class_teacher
+			join mongo.behavior using(classId)
+			where name not in
+				(
+				'Participating',
+				'On task',
+				'Working hard',
+				'Off task',
+				'Teamwork',
+				'Talking out of turn',
+				'Helping others',
+				'Unprepared',
+				'Persistence',
+				'Disrespect',
+				'No homework',
+				'On Task',
+				'Working Hard'
+				)
+			)
+		)
+	group by 1,2,3,4
+	)
+
+
+select
+  '0' as fake,
+	title,
+	role,
+	ismentor,
+	activated1,
+	activated5,
+	emailaddress,
+	locale,
+	firstname,
+	lastname,
+	classCount,
+	className1,
+	className2,
+	className3,
+	counts.studentCount,
+	studentName1,
+	studentName2,
+	studentName3,
+	counts.parentCount,
+	behaviorName1,
+	behaviorName2,
+	behaviorName3,
+	createdAt
+from      cache.teacher
+left join        counts on teacher.teacherId =        counts.teacherId
+left join    classNames on teacher.teacherId =    classNames.teacherId
+left join  studentNames on teacher.teacherId =  studentNames.teacherId
+left join behaviorNames on teacher.teacherId = behaviorNames.teacherId
+where createdAt between '9/15/2016' and '9/30/2016'
+limit 50000;

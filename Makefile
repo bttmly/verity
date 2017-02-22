@@ -5,7 +5,7 @@ lint:
 
 test:
 	$(MAKE) lint
-	./node_modules/.bin/mocha --reporter $(REPORTER) --check-leaks -b
+	./node_modules/.bin/mocha ./test/index.js --reporter $(REPORTER) --check-leaks
 
 test-cov:
 	$(MAKE) lint
@@ -19,5 +19,9 @@ test-coveralls:
 	./node_modules/mocha/bin/_mocha --report lcovonly \
  	-- -b --reporter $(REPORTER) --check-leaks && \
 		cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js
+
+test-next:
+		$(MAKE) lint
+		./node_modules/.bin/mocha ./test/next.js --reporter $(REPORTER) --check-leaks
 
 .PHONY: test

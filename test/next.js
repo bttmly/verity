@@ -1,13 +1,7 @@
 /*jshint multistr:true */
-var verity = require('../index');
+var verity = require('../next');
 var expect = require('expect.js');
-var deepEqual = require('deep-equal');
-var difflet = require('difflet');
-var assert = require('assert');
 var util = require('../util');
-var request = require('request');
-var jsondiffpatch = require('jsondiffpatch');
-var diff = difflet({indent:2, comment: true}).compare;
 
 function flatten(obj) {
   return JSON.parse(JSON.stringify(obj));
@@ -82,78 +76,73 @@ describe('verity', function(){
       done();
     });
   });
+
   after(function(done){
     server.close(done);
   });
 
-  it("can log a user in, if there's an authstrategy", function(done){
-    var v = verity('http://localhost:3000/cookies');
-    v.
-      setAuthStrategy(function(creds, cb){
-        v.request({  url : 'http://localhost:3000/login/',
-                    body : 'username=' +
-                              creds.login +
-                              '&password=' +
-                              creds.password,
-                    method : 'POST',
-                    headers : {
-                      'content-type' : 'application/x-www-form-urlencoded'
-                    }
-                      }, function(err, response, body){
-                          failOnError(err);
-                          expect(body).to.equal("you're logged in");
-                          expect(response.headers['set-cookie'][0]).
-                            to.equal('loggedIn=true; Path=/');
-                          cb(err);
-                   });
-      }).
-      login({login:'gregg', password:'password'}).
-      expectStatus(200).
-      jsonMode().
-      expectBody({gotCookies:{loggedIn:"true"}}).
-      test(function(err, result){
-        failOnError(err);
-        done();
-      });
+  it("can log a user in, if authstrategy is provided", function (done) {
+    verity('http://localhost:3000/cookies')
+      .setAuthStrategy(function (creds, cb) {
+        this.request({
+          url: 'http://localhost:3000/login/',
+          body: `username=${creds.login}&password=${creds.password}`,
+          method: 'POST',
+          headers: {
+            'content-type': 'application/x-www-form-urlencoded'
+          }
+        },
+        function (err, response, body) {
+          // failOnError(err);
+          expect(body).to.equal("you're logged in");
+          expect(response.headers['set-cookie'][0])
+            .to.equal('loggedIn=true; Path=/');
+          cb(err);
+        });
+      })
+      .login({ login:'gregg', password:'password' })
+      .expectStatus(200)
+      .jsonMode()
+      .expectBody({ gotCookies: { loggedIn:"true" } })
+      .test(done);
   });
+
   it("can do a simple GET with 200", function(done){
-    verity('http://localhost:3000/simpleGET').
-      expectStatus(200).
-      expectBody('hello world').
-      log(false).
-      test(done);
+    verity('http://localhost:3000/simpleGET')
+      .expectStatus(200)
+      .expectBody('hello world')
+      .log(false)
+      .test(done);
   });
+
   it("can get cookies and verify them", function(done){
-    verity('http://localhost:3000/cookies').
-      expectStatus(200).
-      jsonMode().
-      log(false).
-      expectCookies({"name": "todu"}).
-      expectBody({gotCookies:{}}).
-      test(function(err, result){
+    verity('http://localhost:3000/cookies')
+      .expectStatus(200)
+      .jsonMode()
+      .log(false)
+      .expectCookies({"name": "todu"})
+      .expectBody({gotCookies:{}})
+      .test(function(err, result) {
         expect(result.errors).to.have.property("Cookies");
         done();
       });
   });
+
   it("can get cookies and return them", function(done){
-    var v = verity('http://localhost:3000/cookies');
-    v.expectStatus(200).
-      jsonMode().
-      log(true).
-      expectCookies({"name": "tobi"}).
-      expectBody({gotCookies:{}}).
-      test(function(err, result){
-        expect(err).
-          to.be(null);
-        v.uri = v.uri.path('echoCookies');
-        v.
-         expectBody({gotCookies:{rememberme:1}}).
-         log(true).
-         test(function(err, result){
-           done(err);
-         });
+    verity("http://localhost:3000/cookies")
+      .expectStatus(200)
+      .jsonMode()
+      .expectCookies({"name": "tobi"})
+      .expectBody({ gotCookies: {} })
+      .test(function(err) {
+        expect(err).to.be(null);
+        this.path("echoCookies")
+         .expectBody({ gotCookies: { rememberme: 1 } })
+         .log(true)
+         .test(done);
       });
   });
+
   it("can do a simple GET with 404", function(done){
     verity('http://localhost:3000/doesNotExist')
       .expectStatus(200)
@@ -193,65 +182,72 @@ describe('verity', function(){
         done();
       });
   });
+
   it("can do a json GET with correct json", function(done){
-    verity('http://localhost:3000/someJson').
-      jsonMode().
-      expectStatus(200).
-      expectBody({"test":"test"}).
-      test(function(err){
-        expect(err).to.be(null);
-        done();
-      });
+    verity('http://localhost:3000/someJson')
+      .jsonMode()
+      .expectStatus(200)
+      .expectBody({ test: "test" })
+      .test(done);
   });
+
   it("can send headers", function(done){
-    verity('http://localhost:3000/headers').
-      jsonMode().
-      header("X-Forwarded-Proto", 'https').
-      expectBody({
-        "x-forwarded-proto":"https",
-        "host":"localhost:3000",
-        "content-length":"0",
-        "connection":"close"
-      }).
-      expectStatus(200).
+    verity('http://localhost:3000/headers')
+      .jsonMode()
+      .header("X-Forwarded-Proto", 'https')
+      .expectBody({
+        "x-forwarded-proto": "https",
+        host: "localhost:3000",
+        "content-length": "2", // response is {}
+        connection: "close",
+        accept: "application/json",
+        "content-type": "application/json",
+      })
+      .expectStatus(200)
       //log(false).
-      test(done);
+      .test(done);
   });
+
   it("can set query string", function(done) {
-    verity('http://localhost:3000/query').
-      jsonMode().
-      query({key: "value"}).
-      expectBody({key: "value"}).
-      expectStatus(200).
-      test(done);
+    verity('http://localhost:3000/query')
+      .jsonMode()
+      .query({key: "value"})
+      .expectBody({key: "value"})
+      .expectStatus(200)
+      .test(done);
   });
+
   it("can set path", function(done) {
-    verity('http://localhost:3000/no-such-path').
-      path('simpleGET').
-      expectBody("hello world").
-      expectStatus(200).
-      test(done);
+    verity('http://localhost:3000/no-such-path')
+      .path('simpleGET')
+      .expectBody("hello world")
+      .expectStatus(200)
+      .test(done);
   });
+
   it("passes path arguments correctly", function(done) {
-    verity('http://localhost:3000/no-such-path').
-      path(['nested'], 'path').
-      expectBody("nested path").
-      expectStatus(200).
-      test(done);
+    verity('http://localhost:3000/no-such-path')
+      .path(['nested'], 'path')
+      .expectBody("nested path")
+      .expectStatus(200)
+      .test(done);
   });
+
   it("can follow redirects", function(done) {
-    verity("http://localhost:3000/redirect").
-      followRedirect().
-      expectStatus(200).
-      expectBody("hello world").
-      test(done);
+    verity("http://localhost:3000/redirect")
+      .followRedirect()
+      .expectStatus(200)
+      .expectBody("hello world")
+      .test(done);
   });
+
   it("can not follow redirects", function(done) {
-    verity("http://localhost:3000/redirect").
-      expectStatus(302).
-      expectHeaders({"location": "/simpleGET"}).
-      test(done);
+    verity("http://localhost:3000/redirect")
+      .expectStatus(302)
+      .expectHeaders({"location": "/simpleGET"})
+      .test(done);
   });
+
   it("can do a json GET with incorrect json", function(done){
     verity('http://localhost:3000/someJson')
       .jsonMode()
@@ -291,28 +287,28 @@ describe('verity', function(){
         done();
       });
   });
+
   it("catches mismatches in expectPartialBody", function(done){
-    verity('http://localhost:3000/moreJson').
-      jsonMode().
-      expectStatus(200).
-      expectPartialBody({"test": 1}).
-      log(false).
-      test(function(err, result){
+    verity("http://localhost:3000/moreJson")
+      .jsonMode()
+      .expectStatus(200)
+      .expectPartialBody({"test": 1})
+      .log(false)
+      .test(function(err, result){
         //date header changes too much to test easily
         delete result.headers.date;
         // expect(err.message).to.be("Expectations failed: Body");
+
         var expected = {
-          "errors": {
-            "Body": {
-              "actual": {
-                "test": "test",
-                "foo": "bar"
+          errors: {
+            Body: {
+              actual: {
+                test: "test",
+                foo: "bar",
               },
-              "expected": {
-                "test": 1
-              },
-              "error": 'ObjectPartialAssertionError\n\u001b[0m{\n  "test" : \u001b[34m\u001b[1m"test"\u001b[0m,\u001b[36m\u001b[1m // != 1\u001b[0m\n  "foo" : "bar"\n}'
-            }
+              expected: { test: 1 },
+              error: 'ObjectPartialAssertionError\n\u001b[0m{\n  "test" : \u001b[34m\u001b[1m"test"\u001b[0m,\u001b[36m\u001b[1m // != 1\u001b[0m\n  "foo" : "bar"\n}',
+            },
           },
           "status": 200,
           "headers": {
@@ -320,13 +316,13 @@ describe('verity', function(){
             "content-type": "application/json; charset=utf-8",
             "content-length": "36",
             "etag": "\"1140083462\"",
-            "connection": "close"
+            "connection": "close",
           },
           "cookies": {},
           "body": {
             "test": "test",
-            "foo": "bar"
-          }
+            "foo": "bar",
+          },
         };
         util.assertObjectEquals(flatten(result), flatten(expected));
         done();

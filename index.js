@@ -211,7 +211,7 @@ Verity.prototype.test = function(cb) {
     url: this.uri.toString(),
     followRedirect: !!this._followRedirect,
   };
-  if (!!this._body){
+  if (this._body){
     if (this.jsonModeOn){
       if (options.method !== 'GET'){
         options.headers['content-type'] = 'application/json';
