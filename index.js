@@ -3,13 +3,10 @@ var expect = require("expect.js");
 var util = require('./util');
 var urlgrey = require('urlgrey');
 var request = require('request');
-var superagent = require('superagent');
-var Reaper = require('reaper');
 var difflet = require('difflet');
 var diff = difflet({indent:2, comment: true}).compare;
 var assert = require('assert');
 var _ = require('underscore');
-var requestify = require('requestify');
 var parseCookie = require("tough-cookie").Cookie.parse;
 
 var deepequal = require("deep-equal");

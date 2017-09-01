@@ -2,7 +2,7 @@
 
 // const asyncEach = require("async-each");
 // const parseCookie = require("tough-cookie").Cookie.parse;
-const request = require("request");
+const request = require("request-promise");
 const urlgrey = require("urlgrey");
 const isEmpty = require("lodash.isempty");
 const defaults = require("lodash.defaults");
@@ -30,6 +30,7 @@ class Verity {
     this._client = request.defaults({
       timeout: 3000,
       jar: this._jar,
+      resolveWithFullResponse: true,
     });
     this._shouldLog = true;
     this._jsonMode = false;
@@ -38,9 +39,15 @@ class Verity {
     this._expectations = [];
   }
 
-  body (body) { this._body = body; return this; }
+  body (body) {
+    this._body = body;
+    return this;
+  }
 
-  method (method) { this._method = method; return this; }
+  method (method) {
+    this._method = method;
+    return this;
+  }
 
   header (name, value) {
     if (value == null) {
@@ -51,19 +58,25 @@ class Verity {
     return this;
   }
 
-  path () {
-    this.uri = this.uri.path.apply(this.uri, arguments);
+  path (...args) {
+    this.uri = this.uri.path(...args);
     return this;
   }
 
-  query () {
-    this.uri = this.uri.query.apply(this.uri, arguments);
+  query (...args) {
+    this.uri = this.uri.query(...args);
     return this;
   }
 
-  login (creds) { this._creds = creds; return this; }
+  login (creds) {
+    this._creds = creds;
+    return this;
+  }
 
-  logout () { delete this._creds; return this; }
+  logout () {
+    delete this._creds;
+    return this;
+  }
 
   setAuthStrategy (strategy) {
     this._authStrategy = strategy;
@@ -80,7 +93,7 @@ class Verity {
     return this;
   }
 
-  request (_options = {}, done) {
+  async request (_options = {}, done) {
     const options = defaults(_options, {
       method: this._method,
       url: this.uri.toString(),
@@ -88,29 +101,25 @@ class Verity {
       headers: this.headers,
     });
 
-    this._client(options, (err, resp, body) => {
-      if (err) return done(err);
-      const cookies = resp.headers["set-cookie"] || [];
-      cookies.forEach((cookie) => {
-        this._jar.setCookie(cookie, "/", {});
-        // this._jar.setCookie(parseCookie(cookie), "/", {});
-      });
-      done(null, resp, body);
+    const resp = await this._client(options)
+    const cookies = resp.headers["set-cookie"] || [];
+    cookies.forEach((cookie) => {
+      this._jar.setCookie(cookie, "/", {});
+      // this._jar.setCookie(parseCookie(cookie), "/", {});
     });
+    return resp;
   }
 
-  _login (cb) {
+  async _login () {
     if (this._creds) {
       if (this._authStrategy == null) {
         throw new Error("Cannot login without auth strategy.");
       }
-      this._authStrategy.call(this, this._creds, cb);
-      return;
+      await this._authStrategy.call(this, this._creds);
     }
-    setImmediate(cb);
   }
 
-  test (cb) {
+  async test () {
 
     var options = {
       url: this.uri.toString(),
@@ -121,67 +130,38 @@ class Verity {
       json: Boolean(this._jsonMode),
     };
 
-    this._login((err) => {
-      if (err) return cb.call(this, err);
-      this.request(options, (err, resp) => {
+    await this._login()
 
-        const errors = {};
-        this._expectations.forEach(({name, test}) => {
-          try {
-            test.call(this, resp);
-          } catch (err) {
-            err.error = err.message;
-            errors[name] = err;
-          }
-        });
+    const resp = await this.request(options)
 
-        const result = {
-          errors,
-          status: resp.statusCode,
-          headers: resp.headers,
-          cookies: this.cookies,
-          body: resp.body,
-        };
-
-        if (isEmpty(errors)) {
-          return cb.call(this, null, result);
-        }
-
-        return cb.call(this, makeCombinedError(errors), result);
-      });
+    const errors = {};
+    this._expectations.forEach(({name, test}) => {
+      try {
+        test.call(this, resp);
+      } catch (err) {
+        err.error = err.message;
+        errors[name] = err;
+      }
     });
-  }
 
-  expect (name, test) {
-    if (!test) {
-      test = name;
-      name = `Expectation ${this._unnamedExpectationCount++}`;
+    const result = {
+      errors,
+      status: resp.statusCode,
+      headers: resp.headers,
+      cookies: this.cookies,
+      body: resp.body,
+    };
+
+    if (isEmpty(errors)) {
+      return result;
     }
 
-    this._expectations.push({ name, test })
-    return this;
+    throw makeCombinedError(errors, result);
   }
 
   log (shouldLog = true) {
     this._shouldLog = shouldLog;
     return this;
-  }
-
-  static register (methodName, testFn, label) {
-    if (!methodName || !testFn) {
-      throw new Error("Expect method must have a name and a test function");
-    }
-
-    if (this.prototype[methodName]) {
-      throw new Error(`Verity already has a method named ${methodName}`);
-    }
-
-    const name = label || methodName[0].toUpperCase() + methodName.slice(1);
-
-    Verity.prototype[methodName] = function(...args) {
-      this.expect(name, testFn.apply(this, args));
-      return this;
-    };
   }
 }
 Verity.prototype.debug = Verity.prototype.log;
@@ -201,10 +181,27 @@ const {
   expectPartialBody,
 } = require("./assertions");
 
-Verity.register("expectCookies", expectCookies, "Cookies");
-Verity.register("expectHeaders", expectHeaders, "Headers");
-Verity.register("expectBody", expectBody, "Body");
-Verity.register("expectStatus", expectStatus, "Status");
-Verity.register("expectPartialBody", expectPartialBody, "Body");
+function register (methodName, testFn, label) {
+  if (!methodName || !testFn) {
+    throw new Error("Expect method must have a name and a test function");
+  }
+
+  if (this.prototype[methodName]) {
+    throw new Error(`Verity already has a method named ${methodName}`);
+  }
+
+  const name = label || methodName[0].toUpperCase() + methodName.slice(1);
+
+  Verity.prototype[methodName] = function(...args) {
+    this.expect(name, testFn.apply(this, args));
+    return this;
+  };
+}
+
+register("expectCookies", expectCookies, "Cookies");
+register("expectHeaders", expectHeaders, "Headers");
+register("expectBody", expectBody, "Body");
+register("expectStatus", expectStatus, "Status");
+register("expectPartialBody", expectPartialBody, "Body");
 
 module.exports = factory;
